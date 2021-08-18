@@ -8,17 +8,17 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
   "event_timestamp": 1627935744578,
   "event_type": "testcase_updated",
   "testcase": {
-    "id": 51447115,
-    "project_id": 74528,
-    "testcase_version": "1.0",
-    "testcase_versionid": 74599170
+    "id": 2557716,
+    "project_id": 12465,
+    "testcase_version": "2.1",
+    "testcase_versionid": 4068220
   }
 }
 */
 
 // Begin Configuration
 
-let parentProject = 74528;
+let parentProject = 12465;
 
 // End Configuration
 
@@ -45,10 +45,12 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
 
             var testCase;
             var testStep;
+			var field;
             var updatedTestCase;
             var updatedTestCaseSteps = [];
             testName = '';
             testRunSteps = [];
+			properties = [];
 
             await request(opts, async function(err, response, resbody) {
                 if (err) {
@@ -73,6 +75,13 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                             expected_result: testCase.test_steps[c].expected
                         };
                         testRunSteps.push(testStep);
+						
+						field = {
+							field_id: testCase.properties[c].field_id,
+							field_name: testCase.properties[c].field_name,
+							field_value: testCase.properties[c].field_value,
+							field_value_name: testCase.properties[c].field_value_name
+						}
                     }
 
                     //console.log('[DEBUG]: Test Steps (in function): ' + JSON.stringify(testRunSteps));
@@ -100,10 +109,6 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                                 {
                                   field_id: tcAutomationStatus.field_id,
                                   field_value: 711,
-                                },                                
-                                {
-                                  field_id: tcAutomationContent.field_id,
-                                  field_value: className,
                                 }
                             ],
                             test_steps: updatedTestCaseSteps
