@@ -10,7 +10,7 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
   "testcase": {
     "id": 2557716,
     "project_id": 12465,
-    "testcase_version": "2.1",
+    "testcase_version": "2.0",
     "testcase_versionid": 4068220
   }
 }
@@ -51,6 +51,8 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             testName = '';
             testRunSteps = [];
 			properties = [];
+            fieldValueName = [];
+            var requestChildTestCase;
 
             await request(opts, async function(err, response, resbody) {
                 if (err) {
@@ -64,7 +66,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 } else {
                     testCase = resbody;
                     console.log('[INFO]: Test Cases checked for id: ' + id + ', found ' + testCase.test_steps.length + ' steps.');
-                    //console.log('[DEBUG]: ' + JSON.stringify(testCase));
+                    console.log('[DEBUG]: ' + JSON.stringify(testCase));
 
                     testName = testCase.name;
 
@@ -72,59 +74,143 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                         testStep = {
                             order: testCase.test_steps[c].order,
                             description: testCase.test_steps[c].description,
-                            expected_result: testCase.test_steps[c].expected
+                            expected: testCase.test_steps[c].expected
                         };
                         testRunSteps.push(testStep);
-						
-						field = {
-							field_id: testCase.properties[c].field_id,
-							field_name: testCase.properties[c].field_name,
-							field_value: testCase.properties[c].field_value,
-							field_value_name: testCase.properties[c].field_value_name
-						}
                     }
-
-                    //console.log('[DEBUG]: Test Steps (in function): ' + JSON.stringify(testRunSteps));
-
-                    let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == 'Automation');
-                    console.log('[DEBUG]: Automated?: ' + tcAutomationStatus.field_value_name);
-                    let tcAutomationContent = testCase.properties.find(obj => obj.field_name == 'Automation Content');
-                    console.log('[DEBUG]: Automation Content: ' + tcAutomationContent.field_value);
-
-                    await searchForModule(testCase.parent_id);
-
-                    if (tcAutomationStatus.field_value_name == 'No') {
-                        for (c = 0; c < testCase.test_steps.length; c++) {
-                            testStep = {
-                                order: testCase.test_steps[c].order,
-                                description: testCase.test_steps[c].description,
-                                expected: testCase.test_steps[c].expected
-                            };
-                            updatedTestCaseSteps.push(testStep);
+					
+                
+					for (f = 0; f < testCase.properties.length; f++) {
+                        if(testCase.properties[f].field_name == "ODM Vendors"){
+                            fieldValueName = testCase.properties[f].field_value_name;
                         }
+                    }
+                    //fieldValueName array is not used currently
+                    console.log('[DEBUG]: Fields (in function): ' + JSON.stringify(fieldValueName));
+                    
+                    //I am only using 1 child project. Needs to be updated to be dynamic
+                    var childProjectId = 5304;
+                    //Request to get ChildProject testcase fields
+                    var optsFields = {
+                        url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/settings/test-cases/fields',
+                        json: true,
+                        headers: standardHeaders
+                    };
 
-                        updatedTestCase = {
-                            name: testName,
-                            properties: [
-                                {
-                                  field_id: tcAutomationStatus.field_id,
-                                  field_value: 711,
+                    await request.get(optsFields, async function(err, response, resbodyFields) {
+                        if (err) {
+                            reject();
+                            console.log('[ERROR]: ' + err);
+                            process.exit(1);
+                            return;
+                        } else {
+                            resolve();
+                            console.log('[INFO]: Get Fields: ' + JSON.stringify(resbodyFields));
+                           
+                        var fieldValueName;
+                        console.log('[DEBUG]: No of fields: ' + resbodyFields.length);
+                        //Loop to update field id and values to create a request to create testcase
+                        for (f = 0; f < resbodyFields.length; f++) {
+                            console.log('[DEBUG]: field label?: '+ resbodyFields[f].label);
+                            let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
+                            console.log('[DEBUG]: Automatedvalue: ' + tcAutomationStatus.field_value);
+                            console.log('[DEBUG]: Automatedname: ' + tcAutomationStatus.field_value_name);
+                            console.log('[DEBUG]: Automatedid: ' + tcAutomationStatus.field_id);
+                            
+                            field = {
+                                field_id: resbodyFields[f].id,
+                                field_name: resbodyFields[f].label,
+                                field_value: tcAutomationStatus.field_value,
+                                field_value_name: tcAutomationStatus.field_value_name
                                 }
-                            ],
-                            test_steps: updatedTestCaseSteps
+                                properties.push(field);
+                            }
+                            
+                        //Setup request for create testcase
+                        requestChildTestCase = {
+                            name: testName,
+                            properties: properties,
+                            test_steps: testRunSteps
                         }
 
-                        //await updateTestCase(id, updatedTestCase);
-                    }
-
+                        //Creating Testcase in only one of the child project for now.                   
+                        createTestCase(5304, requestChildTestCase);
+                        }
+                       
+                    })
+            
+                    //await searchForModule(testCase.parent_id);
                     Promise.resolve('Test case checked successfully.');
 
                     resolve();
                 }
+        
             });
         });
     };
 
+    const createTestCase = async(projectId, createdTestCase) => {
+        await new Promise(async(resolve, reject) => {
+            console.log('[DEBUG]: Updating Test Case Body: ' + JSON.stringify(createdTestCase));
+
+            var standardHeaders = {
+                'Content-Type': 'application/json',
+                'Authorization': `bearer ${constants.QTEST_TOKEN}`
+            }
+
+            var opts = {
+                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + projectId + '/test-cases',
+                json: true,
+                headers: standardHeaders,
+                body: createdTestCase
+            };
+
+            await request.post(opts, async function(err, response, resbody) {
+                if (err) {
+                    reject();
+                    console.log('[ERROR]: ' + err);
+                    process.exit(1);
+                    return;
+                } else {
+                    resolve();
+                    console.log('[INFO]: Test Case Updated: ' + JSON.stringify(resbody));
+                    return;
+                }
+            })
+        })
+    }
+
+    //I didn't know how to return response body to main method above. This needs to be looked at next week
+    const getTestCaseFields = async(projectId) => {
+        await new Promise(async(resolve, reject) => {
+
+            var standardHeaders = {
+                'Content-Type': 'application/json',
+                'Authorization': `bearer ${constants.QTEST_TOKEN}`
+            }
+
+            var opts = {
+                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + projectId + '/settings/test-cases/fields',
+                json: true,
+                headers: standardHeaders
+            };
+
+            await request.get(opts, async function(err, response, resbody) {
+                if (err) {
+                    reject();
+                    console.log('[ERROR]: ' + err);
+                    process.exit(1);
+                    return;
+                } else {
+                    resolve();
+                    console.log('[INFO]: Test Case Updated: ' + JSON.stringify(resbody));
+                    return resbody;
+                }
+            })
+        })
+    }
+
+    //This method is not used for now
     const searchForModule = async(id) => {
         await new Promise(async(resolve, reject) => {
             var standardHeaders = {
