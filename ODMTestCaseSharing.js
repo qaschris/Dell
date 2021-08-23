@@ -8,9 +8,9 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
   "event_timestamp": 1627935744578,
   "event_type": "testcase_updated",
   "testcase": {
-    "id": 2557716,
-    "project_id": 12465,
-    "testcase_version": "2.0",
+    "id": 51553305,
+    "project_id": 74528,
+    "testcase_version": "1.0",
     "testcase_versionid": 4068220
   }
 }
@@ -18,7 +18,7 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
 
 // Begin Configuration
 
-let parentProject = 12465;
+let parentProject = 74528;
 
 // End Configuration
 
@@ -89,7 +89,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                     console.log('[DEBUG]: Fields (in function): ' + JSON.stringify(fieldValueName));
                     
                     //I am only using 1 child project. Needs to be updated to be dynamic
-                    var childProjectId = 5304;
+                    var childProjectId = 73604;
                     //Request to get ChildProject testcase fields
                     var optsFields = {
                         url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/settings/test-cases/fields',
@@ -112,19 +112,21 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                         //Loop to update field id and values to create a request to create testcase
                         for (f = 0; f < resbodyFields.length; f++) {
                             console.log('[DEBUG]: field label?: '+ resbodyFields[f].label);
-                            let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
-                            console.log('[DEBUG]: Automatedvalue: ' + tcAutomationStatus.field_value);
-                            console.log('[DEBUG]: Automatedname: ' + tcAutomationStatus.field_value_name);
-                            console.log('[DEBUG]: Automatedid: ' + tcAutomationStatus.field_id);
-                            
-                            field = {
-                                field_id: resbodyFields[f].id,
-                                field_name: resbodyFields[f].label,
-                                field_value: tcAutomationStatus.field_value,
-                                field_value_name: tcAutomationStatus.field_value_name
+                            if (resbodyFields[f].label !== 'Shared') {
+                                let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
+                                console.log('[DEBUG]: field value: ' + tcAutomationStatus.field_value);
+                                console.log('[DEBUG]: field name: ' + tcAutomationStatus.field_value_name);
+                                console.log('[DEBUG]: field id: ' + tcAutomationStatus.field_id);
+                                
+                                field = {
+                                    field_id: resbodyFields[f].id,
+                                    field_name: resbodyFields[f].label,
+                                    field_value: tcAutomationStatus.field_value,
+                                    field_value_name: tcAutomationStatus.field_value_name
+                                    }
+                                    properties.push(field);
                                 }
-                                properties.push(field);
-                            }
+                        }
                             
                         //Setup request for create testcase
                         requestChildTestCase = {
@@ -134,7 +136,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                         }
 
                         //Creating Testcase in only one of the child project for now.                   
-                        createTestCase(5304, requestChildTestCase);
+                        createTestCase(73604, requestChildTestCase);
                         }
                        
                     })
