@@ -8,9 +8,9 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
   "event_timestamp": 1627935744578,
   "event_type": "testcase_updated",
   "testcase": {
-    "id": 51553305,
-    "project_id": 74528,
-    "testcase_version": "1.0",
+    "id": 2557716,
+    "project_id": 12465,
+    "testcase_version": "2.0",
     "testcase_versionid": 4068220
   }
 }
@@ -18,7 +18,7 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
 
 // Begin Configuration
 
-let parentProject = 74528;
+let parentProject = 12465;
 
 // End Configuration
 
@@ -53,6 +53,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
 			properties = [];
             fieldValueName = [];
             var requestChildTestCase;
+            var version;
 
             await request(opts, async function(err, response, resbody) {
                 if (err) {
@@ -69,6 +70,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                     console.log('[DEBUG]: ' + JSON.stringify(testCase));
 
                     testName = testCase.name;
+                    version = testCase.version;
 
                     for (c = 0; c < testCase.test_steps.length; c++) {
                         testStep = {
@@ -89,7 +91,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                     console.log('[DEBUG]: Fields (in function): ' + JSON.stringify(fieldValueName));
                     
                     //I am only using 1 child project. Needs to be updated to be dynamic
-                    var childProjectId = 73604;
+                    var childProjectId = 5304;
                     //Request to get ChildProject testcase fields
                     var optsFields = {
                         url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/settings/test-cases/fields',
@@ -112,7 +114,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                         //Loop to update field id and values to create a request to create testcase
                         for (f = 0; f < resbodyFields.length; f++) {
                             console.log('[DEBUG]: field label?: '+ resbodyFields[f].label);
-                            if (resbodyFields[f].label !== 'Shared') {
+                            if (resbodyFields[f].label !== 'Shared' && resbodyFields[f].label !== 'Parent ID') {
                                 let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
                                 console.log('[DEBUG]: field value: ' + tcAutomationStatus.field_value);
                                 console.log('[DEBUG]: field name: ' + tcAutomationStatus.field_value_name);
@@ -125,9 +127,16 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                                     field_value_name: tcAutomationStatus.field_value_name
                                     }
                                     properties.push(field);
+                            }
+                            if(resbodyFields[f].label == 'Parent ID'){
+                                field = {
+                                    field_id: resbodyFields[f].id,
+                                    field_name: resbodyFields[f].label,
+                                    field_value: testCase.pid
                                 }
-                        }
-                            
+                                properties.push(field);
+                            }
+                        }   
                         //Setup request for create testcase
                         requestChildTestCase = {
                             name: testName,
@@ -135,8 +144,49 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                             test_steps: testRunSteps
                         }
 
-                        //Creating Testcase in only one of the child project for now.                   
-                        createTestCase(73604, requestChildTestCase);
+                        //Creating Testcase in only one of the child project for now.        
+                        if(version == 1.0){           
+                            createTestCase(childProjectId, requestChildTestCase);
+                        }
+                        else if(version >= 2.0){
+                            var searchForTestCasePayload = {
+                                object_type: "test-cases",
+                                fields: ["*"],
+                                query: "'Parent ID' = '"+testCase.pid+"'"
+                            }
+                            //Search for the Testcase
+
+                            var searchHeaders = {
+                                'Content-Type': 'application/json',
+                                'Authorization': `bearer ${constants.QTEST_TOKEN}`,
+                                'pageSize': 50,
+                                'page': 1
+                            }
+                            var optsSearch = {
+                                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/search',
+                                json: true,
+                                headers: searchHeaders,
+                                body: searchForTestCasePayload
+                            };
+                             
+                            console.log('[INFO]: Request Search Results: ' + JSON.stringify(optsSearch));
+                            await request.post(optsSearch, async function(err, response, resbodySearch) {
+                            if (err) {
+                                reject();
+                                console.log('[ERROR]: ' + err);
+                                process.exit(1);
+                                return;
+                            } else {
+                                resolve();
+                                console.log('[INFO]: Get Search Results: ' + JSON.stringify(resbodySearch));
+
+                                if(resbodySearch.items.length >= 1){
+                                    var childTestCaseId = resbodySearch.items[0].id;
+                                    updateTestCase(childTestCaseId, childProjectId, requestChildTestCase);
+                                }
+                            }
+                            })
+                        }
                         }
                        
                     })
@@ -168,6 +218,38 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             };
 
             await request.post(opts, async function(err, response, resbody) {
+                if (err) {
+                    reject();
+                    console.log('[ERROR]: ' + err);
+                    process.exit(1);
+                    return;
+                } else {
+                    resolve();
+                    console.log('[INFO]: Test Case Created: ' + JSON.stringify(resbody));
+                    return;
+                }
+            })
+        })
+    }
+
+    const updateTestCase = async(testCaseId, projectId, updatedTestCase) => {
+        await new Promise(async(resolve, reject) => {
+            console.log('[DEBUG]: Updating Test Case Id: ' + testCaseId);
+            console.log('[DEBUG]: Updating Test Case Body: ' + JSON.stringify(updatedTestCase));
+
+            var standardHeaders = {
+                'Content-Type': 'application/json',
+                'Authorization': `bearer ${constants.QTEST_TOKEN}`
+            }
+
+            var opts = {
+                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + projectId + '/test-cases/' + testCaseId,
+                json: true,
+                headers: standardHeaders,
+                body: updatedTestCase
+            };
+
+            await request.put(opts, async function(err, response, resbody) {
                 if (err) {
                     reject();
                     console.log('[ERROR]: ' + err);
