@@ -14,6 +14,14 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
 }
 */
 
+/* Expected Constants:
+ManagerURL: The base URL domain name of the qTest instance, e.g. demo.qtestnet.com
+QTEST_TOKEN: The Bearer token for the qTest service account user with all necessary project access
+ParentProjectId: The ID of the parent project, acquired from the qTest Manager URL or API
+ODMVendorFieldName: Case sensitive - The name of the field used for the ODM Vendor child project selections
+ParentTestCaseFieldName: Case sensitive - The name of the site field used to store the parent test case ID in the child projects
+*/
+
 let suiteName = [];
 let qTestProjects = [];
 let childProjectId;
