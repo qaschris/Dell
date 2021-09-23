@@ -14,12 +14,6 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
 }
 */
 
-// Begin Configuration
-
-let parentProject = 74528;
-
-// End Configuration
-
 let suiteName = [];
 let qTestProjects = [];
 let childProjectId;
@@ -44,7 +38,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 'headers': standardHeaders
             };
 
-            await request.get(opts, async function(err, response, resbody) {
+            request.get(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -75,7 +69,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             }
 
             var opts = {
-                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + parentProject + '/test-cases/' + id,
+                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + constants.ParentProjectId + '/test-cases/' + id,
                 json: true,
                 headers: standardHeaders
             };
@@ -83,8 +77,6 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             var testCase;
             var testStep;
             var field;
-            var updatedTestCase;
-            var updatedTestCaseSteps = [];
             testName = '';
             testRunSteps = [];
             properties = [];
@@ -93,7 +85,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             var version;
 
             console.log('[INFO]: Checking for Parent Test Case ID: ' + id);
-            await request(opts, async function(err, response, resbody) {
+            request(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -119,7 +111,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                     
                     // Select list of ODM vendors 
                     for (f = 0; f < testCase.properties.length; f++) {
-                        if(testCase.properties[f].field_name == "ODM Vendors"){
+                        if(testCase.properties[f].field_name == constants.ODMVendorFieldName){
                             fieldValueName = testCase.properties[f].field_value_name.substring(1, testCase.properties[f].field_value_name.length - 1).split(', ');
                         }
                     }
@@ -139,40 +131,67 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                             headers: standardHeaders
                         };
 
-                        await request.get(optsFields, async function(err, response, resbodyFields) {
+                        request.get(optsFields, async function(err, response, resbodyFields) {
                             if (err) {
                                 console.log('[ERROR]: ' + err);
                                 reject();
                             } else {
-                                console.log('[INFO]: Get Fields: ' + JSON.stringify(resbodyFields));
+                                console.log('[INFO]: Get Fields Payload: ' + JSON.stringify(resbodyFields));
                                
-                                console.log('[DEBUG]: No of fields: ' + resbodyFields.length);
+                                console.log('[DEBUG]: # of fields: ' + resbodyFields.length);
                                 //Loop to update field id and values to create a request to create testcase
                                 for (f = 0; f < resbodyFields.length; f++) {
-                                    console.log('[DEBUG]: Field label: '+ resbodyFields[f].label);
-                                    // If test case sharing is enabled in qTest, we want to ignore this field, and also skip Parent ID to handle later
-                                    if (resbodyFields[f].label !== 'Shared' && resbodyFields[f].label !== 'Parent ID') {
-                                        let tcAutomationStatus = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
-                                        console.log('[DEBUG]: Field value: ' + tcAutomationStatus.field_value);
-                                        console.log('[DEBUG]: Field name: ' + tcAutomationStatus.field_value_name);
-                                        console.log('[DEBUG]: Field id: ' + tcAutomationStatus.field_id);
-                                        
-                                        field = {
-                                            field_id: resbodyFields[f].id,
-                                            field_name: resbodyFields[f].label,
-                                            field_value: tcAutomationStatus.field_value,
-                                            field_value_name: tcAutomationStatus.field_value_name
-                                        };
+                                    console.log('[DEBUG]: Target Field label: '+ resbodyFields[f].label);
+                                    // If test case sharing is enabled in qTest, we want to ignore this field, we also want to skip assignments, 
+                                    // skip ODM Vendors (parent project assignment only), and also skip Parent ID to handle later
+                                    if (resbodyFields[f].label !== 'Shared' 
+                                        && resbodyFields[f].label !== 'Assigned To'
+                                        && resbodyFields[f].label !== constants.ODMVendorFieldName
+                                        && resbodyFields[f].label !== constants.ParentTestCaseFieldName) {
+                                        let originalField = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
+
+                                        if (resbodyFields[f].allowed_values) {
+                                            console.log('[INFO]: Updating allowed values...');
+                                            let updatedFieldValue = resbodyFields[f].allowed_values.find(obj => obj.label == originalField.field_value_name);
+                                            console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
+                                            console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
+                                            console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
+                                            console.log('[DEBUG]: Updated Field value: ' + updatedFieldValue.value);
+                                            console.log('[DEBUG]: Updated Field name: ' + updatedFieldValue.label);
+                                            
+                                            field = {
+                                                field_id: resbodyFields[f].id,
+                                                field_name: resbodyFields[f].label,
+                                                field_value: updatedFieldValue.value,
+                                                field_value_name: updatedFieldValue.label
+                                            };
+                                        } else {
+                                            console.log('[INFO]: Using original values...');
+                                            console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
+                                            console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
+                                            console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
+                                            
+                                            field = {
+                                                field_id: resbodyFields[f].id,
+                                                field_name: resbodyFields[f].label,
+                                                field_value: originalField.field_value,
+                                                field_value_name: originalField.field_value_name
+                                            };
+                                        }
+
+
                                         properties.push(field);
-                                    }
-                                    // And we're handling Parent ID now
-                                    if(resbodyFields[f].label == 'Parent ID'){
+                                    } else if (resbodyFields[f].label == constants.ParentTestCaseFieldName) {
+                                        // And now we handle the Parent Test Case ID field
+                                        console.log('[INFO]: Parent ID is being populated from Parent Project...')
                                         field = {
                                             field_id: resbodyFields[f].id,
                                             field_name: resbodyFields[f].label,
                                             field_value: testCase.pid
                                         }
                                         properties.push(field);
+                                    } else {
+                                        console.log('[INFO]: Field is not relayed to child project...')
                                     }
                                 }
                                 // Setup request for create testcase
@@ -184,16 +203,17 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
 
                                 // Creating Testcase in the child project    
                                 if (version == 1.0) {
+                                    console.log('[INFO]: Source Test Case first time approval - Target Test Case being created.');
                                     await createTestCase(childProjectId, requestChildTestCase);
                                 }
                                 else if (version >= 2.0) {
                                     var searchForTestCasePayload = {
                                         object_type: "test-cases",
                                         fields: ["*"],
-                                        query: "'Parent ID' = '" + testCase.pid + "'"
+                                        query: "'" + constants.ParentTestCaseFieldName + "' = '" + testCase.pid + "'"
                                     }
 
-                                    //Search for the Testcase
+                                    // Search for the Testcase
                                     var searchHeaders = {
                                         'Content-Type': 'application/json',
                                         'Authorization': `bearer ${constants.QTEST_TOKEN}`,
@@ -208,7 +228,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                                     };
                                      
                                     console.log('[INFO]: Request Search Results: ' + JSON.stringify(optsSearch));
-                                    await request.post(optsSearch, async function(err, response, resbodySearch) {
+                                    request.post(optsSearch, async function(err, response, resbodySearch) {
                                         if (err) {
                                             console.log('[ERROR]: ' + err);
                                             reject();
@@ -216,8 +236,12 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                                             console.log('[INFO]: Get Search Results: ' + JSON.stringify(resbodySearch));
 
                                             if(resbodySearch.items.length >= 1){
+                                                console.log('[INFO]: Target Test Case found, updating.');
                                                 var childTestCaseId = resbodySearch.items[0].id;
                                                 await updateTestCase(childTestCaseId, childProjectId, requestChildTestCase);
+                                            } else {
+                                                console.log('[INFO]: Target Test Case not found, creating instead.');
+                                                await createTestCase(childProjectId, requestChildTestCase);
                                             }
                                             resolve();
                                         }
@@ -252,7 +276,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 body: createdTestCase
             };
 
-            await request.post(opts, async function(err, response, resbody) {
+            request.post(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -283,7 +307,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 body: updatedTestCase
             };
 
-            await request.put(opts, async function(err, response, resbody) {
+            request.put(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -296,7 +320,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
         });
     }
 
-    //I didn't know how to return response body to main method above. This needs to be looked at next week
+    // This needs to be incorporated into code above
     const getTestCaseFields = async(projectId) => {
         await new Promise(async(resolve, reject) => {
 
@@ -311,7 +335,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 headers: standardHeaders
             };
 
-            await request.get(opts, async function(err, response, resbody) {
+            request.get(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -334,12 +358,12 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             }
 
             var opts = {
-                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + parentProject + '/modules/' + id,
+                url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + constants.ParentProjectId + '/modules/' + id,
                 json: true,
                 headers: standardHeaders
             };
 
-            await request(opts, async function(err, response, resbody) {
+            request(opts, async function(err, response, resbody) {
                 if (err) {
                     console.log('[ERROR]: ' + err);
                     reject();
@@ -359,7 +383,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
     
     let payload = body;
     
-    if (payload.testcase.project_id == parentProject) {
+    if (payload.testcase.project_id == constants.ParentProjectId) {
         console.log('[INFO]: Project ID ' + payload.testcase.project_id + ' is the configured Parent Project.')
         let testcaseVersion = payload.testcase.testcase_version.split('.');
         if ( testcaseVersion[1] == 0 ) {
