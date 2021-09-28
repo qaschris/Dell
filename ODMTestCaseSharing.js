@@ -6,9 +6,9 @@ const { Webhooks } = require('@qasymphony/pulse-sdk');
   "event_timestamp": 1627935744578,
   "event_type": "testcase_updated",
   "testcase": {
-    "id": 52082043,
+    "id": 51553305,
     "project_id": 74528,
-    "testcase_version": "1.0",
+    "testcase_version": "3.0",
     "testcase_versionid": 4068220
   }
 }
@@ -126,143 +126,159 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
 
                     // Check the parent test case for ODM Venders, and match the name to the Projects to get the collection of IDs
                     console.log('[INFO]: ' + fieldValueName.length + ' ODM Vendors Selected in Parent Test Case: ' + JSON.stringify(fieldValueName));
+                    const getFields = async() => {
+                        for (v = 0; v < fieldValueName.length; v++) {
+                            await new Promise((resolve, reject) => {
+                                childProject = qTestProjects.find(obj => obj.name == fieldValueName[v]);
+                                childProjectId = childProject.id;
 
-                    for (v = 0; v < fieldValueName.length; v++) {
-                        childProject = qTestProjects.find(obj => obj.name == fieldValueName[v]);
-                        childProjectId = childProject.id;
-                        console.log('[INFO]: Found Projects: ' + JSON.stringify(childProjectId));
+                                console.log('[INFO]: Found Projects: ' + JSON.stringify(childProjectId));
+                                //Request to get ChildProject testcase fields
+                                var optsFields = {
+                                    url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/settings/test-cases/fields',
+                                    json: true,
+                                    headers: standardHeaders
+                                };
 
-                        //Request to get ChildProject testcase fields
-                        var optsFields = {
-                            url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/settings/test-cases/fields',
-                            json: true,
-                            headers: standardHeaders
-                        };
-
-                        request.get(optsFields, async function(err, response, resbodyFields) {
-                            if (err) {
-                                console.log('[ERROR]: ' + err);
-                                reject();
-                            } else {
-                                console.log('[INFO]: Get Fields Payload: ' + JSON.stringify(resbodyFields));
-                               
-                                console.log('[DEBUG]: # of fields: ' + resbodyFields.length);
-                                //Loop to update field id and values to create a request to create testcase
-                                for (f = 0; f < resbodyFields.length; f++) {
-                                    console.log('[DEBUG]: Target Field label: '+ resbodyFields[f].label);
-                                    // If test case sharing is enabled in qTest, we want to ignore this field, we also want to skip assignments, 
-                                    // skip ODM Vendors (parent project assignment only), and also skip Parent ID to handle later
-                                    if (resbodyFields[f].label !== 'Shared' 
-                                        && resbodyFields[f].label !== 'Assigned To'
-                                        && resbodyFields[f].label !== constants.ODMVendorFieldName
-                                        && resbodyFields[f].label !== constants.ParentTestCaseFieldName) {
-                                        let originalField = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
-
-                                        if (resbodyFields[f].allowed_values) {
-                                            console.log('[INFO]: Updating allowed values...');
-                                            let updatedFieldValue = resbodyFields[f].allowed_values.find(obj => obj.label == originalField.field_value_name);
-                                            console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
-                                            console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
-                                            console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
-                                            console.log('[DEBUG]: Updated Field value: ' + updatedFieldValue.value);
-                                            console.log('[DEBUG]: Updated Field name: ' + updatedFieldValue.label);
-                                            
-                                            field = {
-                                                field_id: resbodyFields[f].id,
-                                                field_name: resbodyFields[f].label,
-                                                field_value: updatedFieldValue.value,
-                                                field_value_name: updatedFieldValue.label
-                                            };
-                                        } else {
-                                            console.log('[INFO]: Using original values...');
-                                            console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
-                                            console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
-                                            console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
-                                            
-                                            field = {
-                                                field_id: resbodyFields[f].id,
-                                                field_name: resbodyFields[f].label,
-                                                field_value: originalField.field_value,
-                                                field_value_name: originalField.field_value_name
-                                            };
-                                        }
-
-
-                                        properties.push(field);
-                                    } else if (resbodyFields[f].label == constants.ParentTestCaseFieldName) {
-                                        // And now we handle the Parent Test Case ID field
-                                        console.log('[INFO]: Parent ID is being populated from Parent Project...')
-                                        field = {
-                                            field_id: resbodyFields[f].id,
-                                            field_name: resbodyFields[f].label,
-                                            field_value: testCase.pid
-                                        }
-                                        properties.push(field);
+                                request.get(optsFields, async function(err, response, resbodyFields) {
+                                    if (err) {
+                                        console.log('[ERROR]: ' + err);
+                                        reject();
                                     } else {
-                                        console.log('[INFO]: Field is not relayed to child project...')
-                                    }
-                                }
-                                // Setup request for create testcase
-                                requestChildTestCase = {
-                                    name: testName,
-                                    properties: properties,
-                                    test_steps: testRunSteps
-                                }
+                                        console.log('[INFO]: Get Fields Payload: ' + JSON.stringify(resbodyFields));
+                                    
+                                        console.log('[DEBUG]: # of fields: ' + resbodyFields.length);
+                                        //Loop to update field id and values to create a request to create testcase
+                                        for (f = 0; f < resbodyFields.length; f++) {
+                                            console.log('[DEBUG]: Target Field label: '+ resbodyFields[f].label);
+                                            // If test case sharing is enabled in qTest, we want to ignore this field, we also want to skip assignments, 
+                                            // skip ODM Vendors (parent project assignment only), and also skip Parent ID to handle later
+                                            if (resbodyFields[f].label !== 'Shared' 
+                                                && resbodyFields[f].label !== 'Assigned To'
+                                                && resbodyFields[f].label !== constants.ODMVendorFieldName
+                                                && resbodyFields[f].label !== constants.ParentTestCaseFieldName) {
+                                                let originalField = testCase.properties.find(obj => obj.field_name == resbodyFields[f].label);
 
-                                // Creating Testcase in the child project    
-                                if (version == 1.0) {
-                                    console.log('[INFO]: Source Test Case first time approval - Target Test Case being created.');
-                                    await createTestCase(childProjectId, requestChildTestCase);
-                                }
-                                else if (version >= 2.0) {
-                                    var searchForTestCasePayload = {
-                                        object_type: "test-cases",
-                                        fields: ["*"],
-                                        query: "'" + constants.ParentTestCaseFieldName + "' = '" + testCase.pid + "'"
-                                    }
+                                                if (resbodyFields[f].allowed_values) {
+                                                    console.log('[INFO]: Updating allowed values...');
+                                                    let updatedFieldValue = resbodyFields[f].allowed_values.find(obj => obj.label == originalField.field_value_name);
+                                                    console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
+                                                    console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
+                                                    console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
+                                                    console.log('[DEBUG]: Updated Field value: ' + updatedFieldValue.value);
+                                                    console.log('[DEBUG]: Updated Field name: ' + updatedFieldValue.label);
+                                                    
+                                                    field = {
+                                                        field_id: resbodyFields[f].id,
+                                                        field_name: resbodyFields[f].label,
+                                                        field_value: updatedFieldValue.value,
+                                                        field_value_name: updatedFieldValue.label
+                                                    };
+                                                } else {
+                                                    console.log('[INFO]: Using original values...');
+                                                    console.log('[DEBUG]: Original Field value: ' + originalField.field_value);
+                                                    console.log('[DEBUG]: Original Field name: ' + originalField.field_value_name);
+                                                    console.log('[DEBUG]: Original Field id: ' + originalField.field_id);
+                                                    
+                                                    field = {
+                                                        field_id: resbodyFields[f].id,
+                                                        field_name: resbodyFields[f].label,
+                                                        field_value: originalField.field_value,
+                                                        field_value_name: originalField.field_value_name
+                                                    };
+                                                }
 
-                                    // Search for the Testcase
-                                    var searchHeaders = {
-                                        'Content-Type': 'application/json',
-                                        'Authorization': `bearer ${constants.QTEST_TOKEN}`,
-                                        'pageSize': 50,
-                                        'page': 1
-                                    }
-                                    var optsSearch = {
-                                        url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/search',
-                                        json: true,
-                                        headers: searchHeaders,
-                                        body: searchForTestCasePayload
-                                    };
-                                     
-                                    console.log('[INFO]: Request Search Results: ' + JSON.stringify(optsSearch));
-                                    request.post(optsSearch, async function(err, response, resbodySearch) {
-                                        if (err) {
-                                            console.log('[ERROR]: ' + err);
-                                            reject();
-                                        } else {
-                                            console.log('[INFO]: Get Search Results: ' + JSON.stringify(resbodySearch));
 
-                                            if(resbodySearch.items.length >= 1){
-                                                console.log('[INFO]: Target Test Case found, updating.');
-                                                var childTestCaseId = resbodySearch.items[0].id;
-                                                await updateTestCase(childTestCaseId, childProjectId, requestChildTestCase);
+                                                properties.push(field);
+                                            } else if (resbodyFields[f].label == constants.ParentTestCaseFieldName) {
+                                                // And now we handle the Parent Test Case ID field
+                                                console.log('[INFO]: Parent ID is being populated from Parent Project...')
+                                                field = {
+                                                    field_id: resbodyFields[f].id,
+                                                    field_name: resbodyFields[f].label,
+                                                    field_value: testCase.pid
+                                                }
+                                                properties.push(field);
                                             } else {
-                                                console.log('[INFO]: Target Test Case not found, creating instead.');
-                                                await createTestCase(childProjectId, requestChildTestCase);
+                                                console.log('[INFO]: Field is not relayed to child project...')
                                             }
-                                            resolve();
                                         }
-                                    });
+                                        // Setup request for create testcase
+                                        requestChildTestCase = {
+                                            name: testName,
+                                            properties: properties,
+                                            test_steps: testRunSteps
+                                        }
 
-                                resolve();
-                                }
-                            }
-                        });
-                    }            
-                    //Promise.resolve('Test case checked successfully.');
+                                        // Creating Testcase in the child project    
+                                        if (version == 1.0) {
+                                            console.log('[INFO]: Source Test Case first time approval - Target Test Case being created.');
+                                            await createTestCase(childProjectId, requestChildTestCase);
+                                        }
+                                        else if (version >= 2.0) {
+                                            const getTestCaseToUpdate = async() => {
+                                                var searchForTestCasePayload = {
+                                                    object_type: "test-cases",
+                                                    fields: ["*"],
+                                                    query: "'" + constants.ParentTestCaseFieldName + "' = '" + testCase.pid + "'"
+                                                }
+
+                                                // Search for the Testcase
+                                                var searchHeaders = {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': `bearer ${constants.QTEST_TOKEN}`,
+                                                    'pageSize': 50,
+                                                    'page': 1
+                                                }
+                                                var optsSearch = {
+                                                    url: 'https://' + constants.ManagerURL + '/api/v3/projects/' + childProjectId + '/search',
+                                                    json: true,
+                                                    headers: searchHeaders,
+                                                    body: searchForTestCasePayload
+                                                };
+                                                
+                                                console.log('[INFO]: Request Search Results: ' + JSON.stringify(optsSearch));
+                                                request.post(optsSearch, async function(err, response, resbodySearch) {
+                                                    if (err) {
+                                                        console.log('[ERROR]: ' + err);
+                                                        reject();
+                                                    } else {
+                                                        console.log('[INFO]: Get Search Results: ' + JSON.stringify(resbodySearch));
+
+                                                        if(resbodySearch.items.length >= 1){
+                                                            console.log('[INFO]: Target Test Case found, updating.');
+                                                            var childTestCaseId = resbodySearch.items[0].id;
+                                                            await updateTestCase(childTestCaseId, childProjectId, requestChildTestCase);
+                                                        } else {
+                                                            console.log('[INFO]: Target Test Case not found, creating instead.');
+                                                            await createTestCase(childProjectId, requestChildTestCase);
+                                                        }
+                                                        resolve();
+                                                    }
+                                                });
+                                                resolve();
+                                            }
+
+                                            await getTestCaseToUpdate().then(()=> {
+                                                console.log("Success");
+                                            }).catch((error) => {
+                                                console.log(error);
+                                            });
+                                        resolve();
+                                        }
+                                    }
+                                });
+                            })
+                        }
+                        resolve();
+                    }
+
+                    await getFields().then(()=> {
+                        console.log("Success");
+                    }).catch((error) => {
+                        console.log(error);
+                    });
                 }
-        
             });
         });
     };
