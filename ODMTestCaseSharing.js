@@ -1,5 +1,5 @@
 const request = require('request');
-//const { Webhooks } = require('@qasymphony/pulse-sdk');
+const { Webhooks } = require('@qasymphony/pulse-sdk');
 
 /* Expected Payload:
 {
@@ -24,8 +24,20 @@ ParentTestCaseFieldName: Case sensitive - The name of the site field used to sto
 
 exports.handler = async function ({ event: body, constants, triggers }, context, callback) {    
     const payload = body;
+    
+    //-- BEGIN CONFIGURATION --//
+    // Skip ODM Vendors (parent project assignment only), and also skip Parent ID to handle later
+    // Skip shared test case settings and user assignements
+    // Skip fields defined as not relayed to the child projects
+    const arrUnpopulatedFields = [constants.ODMVendorFieldName, constants.ParentTestCaseFieldName, 'Shared', 'Assigned To', 'Parent Test Case Key', 'Created By', 'Created Date', 'Test Case ID', 'Entity Key', 'Can be shared with vendor?'];
+    //--  END CONFIGURATION  --//
+    function emitEvent(name, payload) {
+        let t = triggers.find(t => t.name === name);
+        return t && new Webhooks().invoke(t, payload);
+    }
 
     const searchForParentTestCase = async(testcaseID, ParentProjectId) => {
+        console.log('[DEBUG] (searchForParentTestCase): Executing with parameters ' + [testcaseID, ParentProjectId].join(', '));
         return await new Promise(async(resolve, reject) => {
             var options = {
             'method': 'GET',
@@ -38,8 +50,10 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             };
             request(options, function (error, response) {
                 if (error) {
+                    console.log('[ERROR] (searchForParentTestCase):' + JSON.stringify(error));
                     return reject(error);
                 } else {
+                    console.log('[DEBUG] (searchForParentTestCase): ' + response.body);
                     return resolve(response.body);
                 }
             });
@@ -48,6 +62,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
     };
 
     const createORupdateTestCase = async(childProjectId, testcasePayload, testCaseId) => {
+        console.log('[DEBUG] (createORupdateTestCase): Executing with parameters ' + [childProjectId, JSON.stringify(testcasePayload), testCaseId].join(', '));
         return await new Promise(async(resolve, reject) => {
             var options = {
                 'url': 'https://'+constants.ManagerURL+'/api/v3/projects/'+childProjectId+'/test-cases/',
@@ -62,21 +77,33 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 options.method = 'POST';
             } else {
                 options.method = 'PUT';
-                options.url = options.url+testCaseId;
+                options.url = options.url + testCaseId;
             }
+            console.log('[DEBUG]: Request: ' + JSON.stringify(testcasePayload));
             request(options, function (error, response) {
                 if (error) {
-                    console.log('[ERROR]: '+ error);
+                    console.log('[ERROR] (createORupdateTestCase):' + JSON.stringify(error));
                     return reject(error);
                 } else {
-                    console.log('[INFO]: '+ response.body);
-                    return resolve(response.body);
+                    //console.log('[DEBUG]: ' + JSON.stringify(response));
+                    console.log('[DEBUG] (createORupdateTestCase): ' + response.body);
+                    let responseObject = JSON.parse(response.body);
+                    let attachmentsPayload = {
+                      "testcase": {
+                        "child_testcase_id": responseObject.id,
+                        "child_project_id": childProjectId,
+                        "parent_testcase_id": payload.testcase.id,
+                      }
+                    };
+                    emitEvent('ODM_ATTACHMENT_SHARING', attachmentsPayload);
+                    return resolve(responseObject.id);
                 }
             });
         });
     }
 
     const checkIfChildTestCaseExists = async(childProjectId, qTestParentTestCasePID) => {
+        console.log('[DEBUG] (checkIfChildTestCaseExists): Executing with parameters ' + [childProjectId, qTestParentTestCasePID].join(', '));
         return await new Promise(async(resolve, reject) => {
             var options = {
                 'method': 'POST',
@@ -97,8 +124,10 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             };
             request(options, function (error, response) {
                 if (error) {
+                    console.log('[ERROR] (checkIfChildTestCaseExists):' + JSON.stringify(error));
                     return reject(error);
                 } else {
+                    console.log('[DEBUG] (checkIfChildTestCaseExists): ' + response.body);
                     return resolve(response.body);
                 }
             });
@@ -106,6 +135,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
     }
 
     const searchForProjects = async() => {
+        console.log('[DEBUG] (searchForProjects): Executing...');
         return await new Promise(async(resolve, reject) => {
             var options = {
                 'method': 'GET',
@@ -118,8 +148,10 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             };
             request(options, async (error, response) => {
                 if (error) {
+                    console.log('[ERROR] (searchForProjects):' + JSON.stringify(error));
                     return reject(error);
                 } else {
+                    console.log('[DEBUG] (searchForProjects): ' + response.body);
                     return resolve(response.body);
                 }
             });
@@ -127,6 +159,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
     }
 
     const getChildTestCaseFieldValues = async(ChildProjectId) => {
+        console.log('[DEBUG] (getChildTestCaseFieldValues): Executing with parameters ' + ChildProjectId);
         return await new Promise(async(resolve, reject) => {        
             var options = {
                 'method': 'GET',
@@ -139,14 +172,15 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             };
             request(options, function (error, response) {
                 if (error) {
+                    console.log('[ERROR] (getChildTestCaseFieldValues):' + JSON.stringify(error));
                     return reject(error);
                 } else {
+                    console.log('[DEBUG] (getChildTestCaseFieldValues): ' + response.body);
                     return resolve(response.body);
                 }
             });
         });
     }
-
     
     if (payload.testcase.project_id == constants.ParentProjectId) {
         console.log('[INFO]: Project ID ' + payload.testcase.project_id + ' is the configured Parent Project.');
@@ -170,6 +204,7 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             });
 
             console.log('[INFO]: Parent Test Case checked for id: ' + qTestParentTestCaseObject.id + ', found ' + qTestParentTestCaseObject.test_steps.length + ' steps.');
+            console.log('[DEBUG]: Parent Test Case: ' + JSON.stringify(qTestParentTestCaseObject));
 
             const testName = qTestParentTestCaseObject.name;
             let testCaseSteps = [];
@@ -185,8 +220,14 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
             }
 
             const qTestODMVendorFieldValue = qTestParentTestCaseObject.properties.find(obj => obj.field_name === constants.ODMVendorFieldName).field_value_name;
+            if (qTestODMVendorFieldValue === '') {
+                console.log('[DEBUG]: No ODM Vendor selected, test case will not be populated.');
+                return;
+            }
+            console.log('[DEBUG]: ' + qTestODMVendorFieldValue);
             const qTestODMVendorFieldValueArray = qTestODMVendorFieldValue.substring(1, qTestODMVendorFieldValue.length - 1).split(', ');
-            const qTestParentTestCasePID = qTestParentTestCaseObject.pid;
+            console.log('[DEBUG]: ' + qTestODMVendorFieldValueArray.join());
+            const qTestParentTestCasePID = qTestParentTestCaseObject.id;
             for(let i=0; i<qTestODMVendorFieldValueArray.length; i++) {
                 const childqTestProjectID = qTestProjectListArray.find(obj => obj.name == qTestODMVendorFieldValueArray[i]).id;
 
@@ -201,36 +242,64 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                 let qTestTestCaseFieldListArray =[];
                 await getChildTestCaseFieldValues(childqTestProjectID).then((array) => {
                     qTestTestCaseFieldListArray = JSON.parse(array);
+                    console.log('[DEBUG]: Child Test Case Fields: ' + JSON.stringify(qTestTestCaseFieldListArray));
                     for (f = 0; f < qTestTestCaseFieldListArray.length; f++) {
+                        let field;
                         console.log('[INFO]: Target Field label: '+ qTestTestCaseFieldListArray[f].label);
-                        // If test case sharing is enabled in qTest, we want to ignore this field, we also want to skip assignments, 
-                        // skip ODM Vendors (parent project assignment only), and also skip Parent ID to handle later
-                        if (qTestTestCaseFieldListArray[f].label !== 'Shared' 
-                            && qTestTestCaseFieldListArray[f].label !== 'Assigned To'
-                            && qTestTestCaseFieldListArray[f].label !== constants.ODMVendorFieldName
-                            && qTestTestCaseFieldListArray[f].label !== constants.ParentTestCaseFieldName) {
+                        if (!arrUnpopulatedFields.includes(qTestTestCaseFieldListArray[f].label)) {
                             let originalField = qTestParentTestCaseObject.properties.find(obj => obj.field_name == qTestTestCaseFieldListArray[f].label);
+                            console.log('[DEBUG]: Original Field value: ' + JSON.stringify(originalField));
 
                             if (qTestTestCaseFieldListArray[f].allowed_values) {
                                 console.log('[INFO]: Updating allowed values...');
-                                let updatedFieldValue = qTestTestCaseFieldListArray[f].allowed_values.find(obj => obj.label == originalField.field_value_name);
-                                console.log('[INFO]: Original Value id: ' + originalField.field_value);
-                                console.log('[INFO]: Original Value name: ' + originalField.field_value_name);
-                                console.log('[INFO]: Original Field id: ' + originalField.field_id);
-                                console.log('[INFO]: Updated Value id: ' + updatedFieldValue.value);
-                                console.log('[INFO]: Updated Field name: ' + updatedFieldValue.label);
-                                
-                                field = {
-                                    field_id: qTestTestCaseFieldListArray[f].id,
-                                    field_name: qTestTestCaseFieldListArray[f].label,
-                                    field_value: updatedFieldValue.value,
-                                    field_value_name: updatedFieldValue.label
-                                };
+                                let updatedFieldValue;
+
+                                try {
+                                    updatedFieldValue = qTestTestCaseFieldListArray[f].allowed_values.find(obj => obj.label == originalField.field_value_name);
+                                }
+                                catch (e) {
+                                    console.log('[WARNING]: Child Test Case contains Field not contained in Parent, checking for default value...');
+                                    updatedFieldValue = qTestTestCaseFieldListArray[f].allowed_values.find(obj => obj.is_default == true);
+                                    console.log('[DEBUG]: Updated field value: ' + JSON.stringify(updatedFieldValue));
+                                }
+
+                                if (updatedFieldValue === undefined) {                                
+                                    if (qTestTestCaseFieldListArray[f].required == true && qTestTestCaseFieldListArray[f].attribute_type == 'ArrayNumber') {
+                                        console.log('[INFO]: undefined Field value found, ArrayNumber field, updating to empty array string...');
+                                        field = {
+                                            field_id: qTestTestCaseFieldListArray[f].id,
+                                            field_name: qTestTestCaseFieldListArray[f].label,
+                                            field_value: "[]",
+                                            field_value_name: ""
+                                        };
+                                        console.log('[DEBUG]: Field: ' + JSON.stringify(field));
+                                        properties.push(field);
+                                    } else if (qTestTestCaseFieldListArray[f].required == true && qTestTestCaseFieldListArray[f].attribute_type == 'Number') {
+                                        console.log('[INFO]: undefined Field value found, Number field, updating to empty string...');
+                                        field = {
+                                            field_id: qTestTestCaseFieldListArray[f].id,
+                                            field_name: qTestTestCaseFieldListArray[f].label,
+                                            field_value: "",
+                                            field_value_name: ""
+                                        };
+                                        console.log('[DEBUG]: Field: ' + JSON.stringify(field));
+                                        properties.push(field);
+                                    } else {
+                                        console.log('[INFO]: undefined Field value found, not a required field, skipping...');
+                                    }
+                                } else {
+                                    console.log('[INFO]: Field value found, updating to new value...');
+                                    field = {
+                                        field_id: qTestTestCaseFieldListArray[f].id,
+                                        field_name: qTestTestCaseFieldListArray[f].label,
+                                        field_value: updatedFieldValue.value,
+                                        field_value_name: updatedFieldValue.label
+                                    };
+                                    console.log('[DEBUG]: Field: ' + JSON.stringify(field));
+                                    properties.push(field);
+                                }                            
                             } else {
-                                console.log('[INFO]: Using original values...');
-                                console.log('[INFO]: Original Value id: ' + originalField.field_value);
-                                console.log('[INFO]: Original Value name: ' + originalField.field_value_name);
-                                console.log('[INFO]: Original Field id: ' + originalField.field_id);
+                                console.log('[INFO]: Using original value...');
                                 
                                 field = {
                                     field_id: qTestTestCaseFieldListArray[f].id,
@@ -238,8 +307,9 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
                                     field_value: originalField.field_value,
                                     field_value_name: originalField.field_value_name
                                 };
+                                console.log('[DEBUG]: Field: ' + JSON.stringify(field));
+                                properties.push(field);
                             }
-                            properties.push(field);
                         } else if (qTestTestCaseFieldListArray[f].label == constants.ParentTestCaseFieldName) {
                             // And now we handle the Parent Test Case ID field
                             console.log('[INFO]: Parent ID is being populated from Parent Project...')
@@ -267,10 +337,12 @@ exports.handler = async function ({ event: body, constants, triggers }, context,
 
                 if(qTestChildTestCaseObject.items.length == 1) {
                     console.log("[INFO]: Found test case with ID: "+qTestChildTestCaseObject.items[0].id+" need to be updated.");
-                    await createORupdateTestCase(childqTestProjectID, testcasePayload, qTestChildTestCaseObject.items[0].id);
+                    const childTestCaseId = await createORupdateTestCase(childqTestProjectID, testcasePayload, qTestChildTestCaseObject.items[0].id);
+                    //await approveTestCase(childqTestProjectID, childTestCaseId);
                 } else if(qTestChildTestCaseObject.items.length == 0) {
                     console.log("[INFO]: No test case found and need to create one.");
-                    await createORupdateTestCase(childqTestProjectID, testcasePayload, 0);
+                    const childTestCaseId = await createORupdateTestCase(childqTestProjectID, testcasePayload, 0);
+                    //await approveTestCase(childqTestProjectID, childTestCaseId);
                 } else if(qTestChildTestCaseObject.items.length > 1) {
                     console.log("[ERROR]: Redundant Child Test Case Exists!");
                 }
